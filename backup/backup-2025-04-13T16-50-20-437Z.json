@@ -1,0 +1,32 @@
+{
+  "timestamp": "2025-04-13T16:50:20.443Z",
+  "database": "Backend-Task",
+  "type": "Manual",
+  "mock": true,
+  "collections": {
+    "backups": [
+      {
+        "_id": "67fbeaf185230c6d2628e91f",
+        "filename": "backup-2025-04-13T16-48-49-771Z.json",
+        "path": "backup/backup-2025-04-13T16-48-49-771Z.json",
+        "timestamp": "2025-04-13T16:48:49.783Z",
+        "database": "Backend-Task",
+        "type": "Manual",
+        "mock": true,
+        "size": 153,
+        "__v": 0
+      },
+      {
+        "_id": "67fbeb3885230c6d2628e923",
+        "filename": "backup-2025-04-13T16-50-00-026Z.json",
+        "path": "backup/backup-2025-04-13T16-50-00-026Z.json",
+        "timestamp": "2025-04-13T16:50:00.037Z",
+        "database": "Backend-Task",
+        "type": "Automatic",
+        "mock": true,
+        "size": 514,
+        "__v": 0
+      }
+    ]
+  }
+}

@@ -7,93 +7,102 @@ const { connectDB, Backup } = require("./db");
 const uri = process.env.MONGO_URI;
 const backupFolder = process.env.BACKUP_FOLDER || "./backup";
 
+const createBackupFolderIfNeeded = (folderPath) => {
+  if (!fs.existsSync(folderPath)) {
+    fs.mkdirSync(folderPath, { recursive: true });
+  }
+};
+
+const saveBackupEntry = async (filePath, type, mock) => {
+  await connectDB();
+  const backupEntry = new Backup({
+    filename: path.basename(filePath),
+    path: filePath,
+    timestamp: new Date(),
+    database: uri.split("/").pop(),
+    type,
+    mock,
+    size: fs.statSync(filePath).size,
+  });
+
+  await backupEntry.save();
+};
+
 const runBackup = async (req, res) => {
-  console.log("Run Backup");
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const outDir = path.join(backupFolder, `backup-${timestamp}`);
+  const type = req.body?.type || "Automatic";
 
-  if (!fs.existsSync(backupFolder)) {
-    fs.mkdirSync(backupFolder, { recursive: true });
-  }
+  createBackupFolderIfNeeded(backupFolder);
 
-  if (
+  const isMock =
     process.env.NODE_ENV === "development" ||
-    process.env.MOCK_BACKUP === "true"
-  ) {
+    process.env.MOCK_BACKUP === "true";
+
+  if (isMock) {
     try {
+      await connectDB();
+      const mongoose = require("mongoose");
+      const db = mongoose.connection;
+
+      const collections = await db.db.listCollections().toArray();
+      const dbContent = {};
+
+      for (const col of collections) {
+        const collectionName = col.name;
+        const data = await db.collection(collectionName).find().toArray();
+        dbContent[collectionName] = data;
+      }
+
       const mockData = {
         timestamp: new Date().toISOString(),
         database: uri.split("/").pop(),
-        type: req.body?.type || "Automatic",
+        type,
         mock: true,
+        collections: dbContent,
       };
 
       const filePath = `${outDir}.json`;
+      const dirPath = path.dirname(filePath);
+      createBackupFolderIfNeeded(dirPath);
+
       fs.writeFileSync(filePath, JSON.stringify(mockData, null, 2));
+      await saveBackupEntry(filePath, type, true);
 
-      await connectDB();
-      const backupEntry = new Backup({
-        filename: path.basename(filePath),
-        path: filePath,
-        timestamp: new Date(),
-        database: mockData.database,
-        type: mockData.type,
-        mock: true,
-        size: fs.statSync(filePath).size,
-      });
-
-      await backupEntry.save();
-      console.log(`Mock backup created and saved to database: ${filePath}`);
-      return res.status(200).send(`Mock backup successful: ${filePath}`);
+      return res.status(200).send(`Mock backup with DB data: ${filePath}`);
     } catch (err) {
-      console.error("Mock backup failed:", err);
       return res.status(500).send("Mock backup failed.");
     }
   }
 
-  const cmd = `mongodump --uri="${uri}" --archive=${outDir}.gz --gzip`;
+  const filePath = `${outDir}.gz`;
+  const cmd = `mongodump --uri="${uri}" --archive=${filePath} --gzip`;
 
   exec(cmd, async (error, stdout, stderr) => {
     if (error) {
-      console.error("Backup failed:", error);
+      const errorMsg = error.message.includes("not recognized")
+        ? "mongodump command not recognized. Is MongoDB installed?"
+        : "Backup failed: " + error.message;
+      return res.status(500).send(errorMsg);
+    }
 
-      if (error.message && error.message.includes("not recognized")) {
-        const errorMsg =
-          "MongoDB tools not installed. Please install MongoDB Database Tools or set MOCK_BACKUP=true in .env file for development.";
-        console.error(errorMsg);
-        return res.status(500).send(errorMsg);
-      }
-
-      return res.status(500).send("Backup failed: " + error.message);
-    } else {
-      const filePath = `${outDir}.gz`;
-
-      await connectDB();
-      const backupEntry = new Backup({
-        filename: path.basename(filePath),
-        path: filePath,
-        timestamp: new Date(),
-        database: uri.split("/").pop(),
-        type: req.body?.type || "Automatic",
-        mock: false,
-        size: fs.statSync(filePath).size,
-      });
-
-      await backupEntry.save();
-      console.log(`Backup successful and saved to database: ${filePath}`);
+    try {
+      await saveBackupEntry(filePath, type, false);
       return res.status(200).send(`Backup successful: ${filePath}`);
+    } catch (err) {
+      return res
+        .status(500)
+        .send("Backup created but failed to log in database.");
     }
   });
 };
 
 const getBackup = async (req, res) => {
   try {
-    const { Backup } = require("./db");
     const backups = await Backup.find().sort({ timestamp: -1 });
-    res.status(200).json(backups);
+    return res.status(200).json(backups);
   } catch (error) {
-    console.error("Error fetching backups:", error);
-    res.status(500).send("Failed to fetch backups");
+    return res.status(500).send("Failed to fetch backups");
   }
 };
 
